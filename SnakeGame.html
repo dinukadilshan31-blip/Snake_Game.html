@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Snake World Final</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Segoe UI', sans-serif; touch-action: none; }
+        
+        #game-container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        canvas { box-shadow: 0 0 20px rgba(0,0,0,0.5); border-radius: 4px; }
+        
+        .overlay { position: absolute; pointer-events: none; width: 400px; height: 400px; }
+        .ui-element { pointer-events: auto; }
+
+        #leaderboard { position: absolute; top: 10px; left: 10px; color: white; font-size: 12px; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 4px; pointer-events: none;}
+        #minimap-container { position: absolute; top: 10px; right: 10px; width: 80px; height: 80px; background: rgba(0,0,0,0.5); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); overflow: hidden; }
+        #minimap { width: 100%; height: 100%; }
+
+        #controls { position: absolute; bottom: 10px; width: 100%; display: flex; justify-content: center; gap: 20px; }
+        .btn { width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; border: 2px solid white; color: white; font-size: 24px; display: flex; justify-content: center; align-items: center; user-select: none; cursor: pointer; }
+        .btn:active { background: rgba(255,255,255,0.5); }
+
+        #main-menu, #game-over-menu { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(20, 20, 40, 0.95); display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; color: white; z-index: 10; 
+        }
+        #game-over-menu { background: rgba(40, 20, 20, 0.95); } /* වෙනස් කළ වර්ණය */
+
+        input, select, button { margin: 10px; padding: 10px; font-size: 16px; border-radius: 5px; border: none; }
+        button { background: #4CAF50; color: white; cursor: pointer; font-weight: bold;}
+        button.reset { background: #f44336; }
+        .hidden { display: none !important; }
+        #credit { position: absolute; bottom: 20px; font-size: 14px; color: #aaa; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    
+    <div id="hud" class="overlay hidden">
+        <div id="leaderboard">
+            <b>Leaderboard</b><br>
+            <div id="lb-content"></div>
+        </div>
+        <div id="minimap-container">
+            <canvas id="minimap" width="80" height="80"></canvas>
+        </div>
+        <div id="controls" class="ui-element">
+            <div class="btn" id="btn-left">↺</div>
+            <div class="btn" id="btn-boost">🚀</div>
+            <div class="btn" id="btn-right">↻</div>
+        </div>
+    </div>
+
+    <div id="main-menu">
+        <h1 style="color: #4CAF50; text-shadow: 2px 2px #000;">🐍 Snake World</h1>
+        <div id="high-score-display">High Score: 0</div>
+        <input type="text" id="player-name" placeholder="Enter Name" maxlength="10" value="Player">
+        <select id="color-select"></select>
+        <button id="btn-play">▶ Play Game</button>
+        <button id="btn-reset" class="reset">⚠ Reset Data</button>
+        <div id="credit">powered by Dinu</div> 
+    </div>
+
+    <div id="game-over-menu" class="hidden">
+        <h1 style="color: #f44336; text-shadow: 2px 2px #000;">Oops!! 💥</h1>
+        <h2>You Died!</h2>
+        <div id="final-score-display" style="font-size: 24px; margin: 10px;">Score: 0</div>
+        <button id="btn-play-again">▶ Play Again</button>
+    </div>
+    </div>
+
+<script>
+/** CONFIGURATION */
+const WORLD_RADIUS = 3000;
+const WALL_COLOR = "#33cc33"; 
+const BG_COLOR = "#2a2a40"; 
+
+const SNAKE_SEG_SIZE = 20;
+const SNAKE_INIT_LEN = 15; 
+const BASE_SPEED = 3.0; 
+const BOOST_MULT = 1.6;
+
+const ROTATION_SPEED = 0.12; 
+
+const MAX_FOOD = 2500; 
+const MAX_AI = 50;     
+
+// AI නම් ලැයිස්තුව - යාවත්කාලීන කරන ලදී
+const AI_NAMES = [
+    "Jack", "Bob", "Alice", "Max", "Leo", "Luna", "Kai", "Mia", "Zoe", "Finn",
+    "Sam", "Jude", "River", "Storm", "Blaze", "Echo", "Jax", "Kira", "Odin", "Pixie",
+    "Racer", "Shadow", "Viper", "Wick", "Xena", "Yuri", "Zane", "Nova", "Cruz", "Ace",
+    "Pasindu SL", "Pew Di Pie", "Mr Beast", "ChAbhi", "GamerBro", "Firefly" // අමතර නම්
+];
+// ------------------------------------
+
+// වර්ණ ලැයිස්තුව - යාවත්කාලීන කරන ලදී
+const COLORS = [
+    {score: 0, val: '#00FF00', name: "Green"},
+    {score: 100, val: '#00FFFF', name: "Cyan"},
+    {score: 200, val: '#0000FF', name: "Blue"},
+    {score: 300, val: '#8A2BE2', name: "Blue Violet"}, // නව වර්ණය
+    {score: 500, val: '#FF00FF', name: "Magenta"},
+    {score: 750, val: '#FF4500', name: "Orange Red"}, // නව වර්ණය
+    {score: 1000, val: '#FF0000', name: "Red"},
+    {score: 1500, val: '#FFFF00', name: "Yellow"},
+    {score: 2000, val: '#FFFFFF', name: "White"},
+    {score: 2500, val: '#FFA500', name: "Orange"},
+    {score: 3000, val: 'rainbow', name: "RAINBOW"},
+    {score: 4000, val: '#4B0082', name: "Indigo"}, // නව වර්ණය
+];
+
+let canvas, ctx, miniCanvas, miniCtx;
+let gameState = 'MENU';
+let savedData = JSON.parse(localStorage.getItem('snakeData')) || { highScore: 0, name: 'Player' };
+let player;
+let snakes = [];
+let foods = [];
+let keys = { left: false, right: false, boost: false };
+
+let usedAiNames = []; 
+
+class Snake {
+    constructor(x, y, isAI = false, colorParams = '#00FF00', name = 'Player') {
+        this.x = x;
+        this.y = y;
+        this.angle = Math.random() * Math.PI * 2;
+        this.body = [];
+        this.radius = SNAKE_SEG_SIZE / 2;
+        this.length = SNAKE_INIT_LEN;
+        this.speed = BASE_SPEED;
+        this.isAI = isAI;
+        this.color = colorParams;
+        this.score = 0;
+        this.dead = false;
+        this.boostTimer = 0;
+        this.name = name;
+        
+        for(let i=0; i<this.length; i++) {
+            this.body.push({x: x, y: y});
+        }
+        
+        this.aiType = (Math.random() > 0.7) ? 'COMPETITIVE' : 'NORMAL';
+        this.targetAngle = this.angle;
+    }
+
+    update() {
+        if(this.dead) return;
+
+        let currentSpeed = this.speed;
+        let boosting = false;
+
+        if (this.isAI) {
+            this.aiLogic();
+            if (this.aiType === 'COMPETITIVE' && Math.random() < 0.005) this.boostTimer = 30;
+            if (this.boostTimer > 0) { boosting = true; this.boostTimer--; }
+        } else {
+            if (keys.left) this.angle -= ROTATION_SPEED;
+            if (keys.right) this.angle += ROTATION_SPEED;
+            if (keys.boost && this.body.length > 5) boosting = true;
+        }
+
+        if (boosting) {
+            currentSpeed *= BOOST_MULT;
+            if (Date.now() % 15 === 0 && this.body.length > 3) {
+                this.body.pop(); 
+                this.length--;
+            }
+        }
+
+        this.x += Math.cos(this.angle) * currentSpeed;
+        this.y += Math.sin(this.angle) * currentSpeed;
+
+        let distFromCenter = Math.sqrt(this.x*this.x + this.y*this.y);
+        if (distFromCenter > WORLD_RADIUS - this.radius) {
+            this.die();
+        }
+
+        this.body.unshift({x: this.x, y: this.y});
+        while (this.body.length > this.length) {
+            this.body.pop();
+        }
+    }
+
+    aiLogic() {
+        let nearest = null;
+        let minDst = 500; 
+        
+        let checkLimit = 0;
+        for(let i=0; i<foods.length; i++) {
+            checkLimit++;
+            if(checkLimit > 50) break;
+            
+            let rndIdx = Math.floor(Math.random() * foods.length);
+            let f = foods[rndIdx];
+            if(!f) continue;
+
+            let d = Math.hypot(this.x - f.x, this.y - f.y);
+            if(d < minDst) { minDst = d; nearest = f; }
+        }
+
+        if(nearest) {
+            this.targetAngle = Math.atan2(nearest.y - this.y, nearest.x - this.x);
+        } else {
+            if (Math.random() < 0.05) {
+                 this.targetAngle = Math.atan2(0 - this.y, 0 - this.x); 
+            }
+        }
+
+        let diff = this.targetAngle - this.angle;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        
+        if (diff > 0) this.angle += Math.min(diff, ROTATION_SPEED);
+        else this.angle -= Math.min(Math.abs(diff), ROTATION_SPEED);
+    }
+
+    // යාවත්කාලීන කළ die() Method එක - දිගට ගැලපෙන ආහාර විසිරීම
+    die() {
+        this.dead = true;
+        
+        if (this.isAI) {
+             usedAiNames = usedAiNames.filter(n => n !== this.name);
+        }
+        
+        // සර්පයාගේ දිග අනුව ආහාර විසිරවීමේ ප්‍රමාණය තීරණය කරයි.
+        let dropAmount = Math.min(this.body.length, 150); // උපරිම Food 150 ක්
+        
+        // සර්පයාගේ ශරීරයේ කොටස් දිගේ ආහාර දමන්න
+        for (let i = 0; i < this.body.length; i += Math.max(1, Math.floor(this.body.length / dropAmount))) { 
+            let seg = this.body[i];
+            
+            // සෑම Food 10 කට වරක් Type 3 (රතු) Food එකක් දමන්න
+            let foodType = (i % 10 === 0) ? 3 : (Math.random() < 0.3 ? 2 : 1); 
+            
+            // සුළු අහඹු විසිරීමක් එකතු කිරීම
+            let offsetX = (Math.random() - 0.5) * SNAKE_SEG_SIZE * 0.5;
+            let offsetY = (Math.random() - 0.5) * SNAKE_SEG_SIZE * 0.5;
+            
+            spawnFood(seg.x + offsetX, seg.y + offsetY, foodType); 
+        }
+    }
+    // -----------------------------------------------------------
+
+    // යාවත්කාලීන කළ draw() Method එක - නම දර්ශනය කිරීම
+    draw(ctx) {
+        for (let i = this.body.length - 1; i >= 0; i--) {
+            let seg = this.body[i];
+            
+            if (this.color === 'rainbow') {
+                ctx.fillStyle = `hsl(${(i * 10 + Date.now()/10) % 360}, 100%, 50%)`;
+            } else {
+                ctx.fillStyle = this.color;
+            }
+            
+            ctx.beginPath();
+            ctx.arc(seg.x, seg.y, this.radius, 0, Math.PI*2);
+            ctx.fill();
+            
+            if (i === 0) {
+                // ඇස් ඇඳීම
+                ctx.fillStyle = "white";
+                ctx.beginPath();
+                ctx.arc(seg.x + Math.cos(this.angle - 0.5)*8, seg.y + Math.sin(this.angle - 0.5)*8, 4, 0, Math.PI*2);
+                ctx.arc(seg.x + Math.cos(this.angle + 0.5)*8, seg.y + Math.sin(this.angle + 0.5)*8, 4, 0, Math.PI*2);
+                ctx.fill();
+
+                // නම ඇඳීම
+                ctx.font = "14px Segoe UI, sans-serif";
+                ctx.fillStyle = this.color === 'rainbow' ? 'white' : this.color; 
+                ctx.textAlign = "center";
+                ctx.fillText(this.name, seg.x, seg.y - 20);
+            }
+        }
+    }
+    // -----------------------------------------------------------
+}
+
+function init() {
+    canvas = document.getElementById('gameCanvas');
+    ctx = canvas.getContext('2d');
+    miniCanvas = document.getElementById('minimap');
+    miniCtx = miniCanvas.getContext('2d');
+
+    setupMenu();
+    setupControls();
+    requestAnimationFrame(gameLoop);
+    
+    document.getElementById('btn-play-again').onclick = () => {
+        document.getElementById('game-over-menu').classList.add('hidden');
+        document.getElementById('main-menu').classList.remove('hidden');
+        setupMenu(); 
+    };
+}
+
+function startGame() {
+    gameState = 'PLAYING';
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('game-over-menu').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+
+    const playerName = document.getElementById('player-name').value;
+    // වර්ණ තේරීමෙන් වැළකීමට අවශ්‍ය නම්, අගුළු නොදැමූ වර්ණයක් තෝරා ඇති බවට සහතික වන්න
+    const selectedColor = document.getElementById('color-select').value;
+    player = new Snake(0, 0, false, selectedColor, playerName);
+
+    snakes = [player];
+    foods = [];
+    usedAiNames = []; 
+
+    for(let i=0; i<MAX_FOOD; i++) spawnFood();
+    for(let i=0; i<MAX_AI; i++) spawnAI();
+}
+
+function spawnFood(x, y, forcedType) {
+    if (foods.length >= MAX_FOOD) return;
+    
+    let pos = (x !== undefined && y !== undefined) ? {x,y} : getRandomPos();
+    
+    let type = forcedType || (Math.random() < 0.1 ? 3 : (Math.random() < 0.4 ? 2 : 1));
+    let color = type === 3 ? '#ff3333' : (type === 2 ? '#ff9933' : '#ffff33');
+    let radius = type === 3 ? 9 : (type === 2 ? 7 : 5);
+    
+    foods.push({ x: pos.x, y: pos.y, type: type, color: color, radius: radius });
+}
+
+function spawnAI() {
+    let pos = getRandomPos();
+    
+    // AI සඳහා අහඹු අගුළු නොදැමූ වර්ණයක් තෝරන්න
+    let colorOptions = COLORS.filter(c => c.val !== 'rainbow');
+    let aiColor = colorOptions[Math.floor(Math.random() * colorOptions.length)].val; 
+    
+    let availableNames = AI_NAMES.filter(name => !usedAiNames.includes(name));
+    let aiName = availableNames.length > 0 
+        ? availableNames[Math.floor(Math.random() * availableNames.length)]
+        : `AI-${Math.floor(Math.random()*100)}`; 
+
+    if(availableNames.length > 0) {
+        usedAiNames.push(aiName);
+    }
+    
+    snakes.push(new Snake(pos.x, pos.y, true, aiColor, aiName));
+}
+
+function getRandomPos() {
+    let a = Math.random() * 2 * Math.PI;
+    let r = Math.sqrt(Math.random()) * (WORLD_RADIUS - 100);
+    return { x: r * Math.cos(a), y: r * Math.sin(a) };
+}
+
+function update() {
+    // Clean up dead snakes instantly from array to trigger respawn
+    snakes = snakes.filter(s => !s.dead || s === player);
+
+    // Respawn Logic: Maintain exact population
+    while (snakes.filter(s => s.isAI).length < MAX_AI) { 
+        spawnAI();
+    }
+    
+    if (foods.length < MAX_FOOD) spawnFood();
+
+    snakes.forEach(s => s.update());
+    checkCollisions();
+    updateLeaderboard();
+    
+    if (player.dead) endGame();
+}
+
+function checkCollisions() {
+    snakes.forEach(s => {
+        if(s.dead) return;
+
+        // Food Collision
+        for (let i = foods.length - 1; i >= 0; i--) {
+            let f = foods[i];
+            if (Math.abs(s.x - f.x) > 30 || Math.abs(s.y - f.y) > 30) continue;
+
+            let dist = Math.hypot(s.x - f.x, s.y - f.y);
+            if (dist < s.radius + f.radius) {
+                let growth = (f.type === 3) ? 5 : (f.type === 2 ? 3 : 1);
+                s.length += growth; 
+                s.score += f.type * 10;
+                foods.splice(i, 1);
+            }
+        }
+
+        // Snake Collision
+        snakes.forEach(victim => {
+            if (victim.dead || s === victim) return;
+            if (s === player && victim === player) return;
+
+            if (Math.abs(s.x - victim.x) > 200 && Math.abs(s.y - victim.y) > 200) return;
+
+            // සර්පයාගේ හිස වින්දිතයාගේ ශරීරය සමඟ ගැටීම
+            for (let i = 0; i < victim.body.length; i+=2) { 
+                let seg = victim.body[i];
+                let dist = Math.hypot(s.x - seg.x, s.y - seg.y);
+                if (dist < s.radius + 10) { 
+                    s.die();
+                    return; // ඊළඟ වින්දිතයාට යන්න
+                }
+            }
+        });
+    });
+}
+
+function draw() {
+    ctx.fillStyle = BG_COLOR;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    let tx = (canvas.width / 2) - player.x;
+    let ty = (canvas.height / 2) - player.y;
+    ctx.translate(tx, ty);
+
+    // Wall
+    ctx.beginPath();
+    ctx.arc(0, 0, WORLD_RADIUS, 0, Math.PI*2);
+    ctx.strokeStyle = WALL_COLOR;
+    ctx.lineWidth = 50;
+    ctx.stroke();
+
+    // Viewport Optimization
+    let vpLeft = player.x - 300;
+    let vpRight = player.x + 300;
+    let vpTop = player.y - 300;
+    let vpBottom = player.y + 300;
+
+    foods.forEach(f => {
+        if(f.x > vpLeft && f.x < vpRight && f.y > vpTop && f.y < vpBottom) {
+            ctx.fillStyle = f.color;
+            ctx.beginPath();
+            ctx.arc(f.x, f.y, f.radius, 0, Math.PI*2);
+            ctx.fill();
+        }
+    });
+
+    snakes.forEach(s => {
+        if (!s.dead && (s === player || (Math.abs(s.x - player.x) < 500 && Math.abs(s.y - player.y) < 500))) {
+            s.draw(ctx);
+        }
+    });
+
+    ctx.restore();
+    drawMinimap();
+}
+
+function drawMinimap() {
+    miniCtx.clearRect(0, 0, 80, 80);
+    miniCtx.fillStyle = 'rgba(0,0,0,0.5)';
+    miniCtx.fillRect(0,0,80,80);
+    
+    let scale = 38 / WORLD_RADIUS; 
+    miniCtx.save();
+    miniCtx.translate(40, 40);
+
+    miniCtx.beginPath();
+    miniCtx.arc(0, 0, 38, 0, Math.PI*2);
+    miniCtx.strokeStyle = '#00FF00';
+    miniCtx.lineWidth = 1;
+    miniCtx.stroke();
+
+    snakes.forEach(s => {
+        if (s.dead) return;
+        miniCtx.fillStyle = (s === player) ? 'white' : 'red';
+        miniCtx.beginPath();
+        miniCtx.arc(s.x * scale, s.y * scale, (s === player ? 2 : 1.5), 0, Math.PI*2);
+        miniCtx.fill();
+    });
+    miniCtx.restore();
+}
+
+// endGame() යාවත්කාලීන කරන ලදී
+function endGame() {
+    gameState = 'GAMEOVER';
+    if (player.score > savedData.highScore) {
+        savedData.highScore = player.score;
+        localStorage.setItem('snakeData', JSON.stringify(savedData));
+    }
+    document.getElementById('final-score-display').innerText = `Score: ${player.score}`;
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('game-over-menu').classList.remove('hidden'); // නව මෙනුව පෙන්වන්න
+    setupMenu();
+}
+
+function gameLoop() {
+    if (gameState === 'PLAYING') {
+        update();
+        draw();
+    }
+    requestAnimationFrame(gameLoop);
+}
+
+function setupMenu() {
+    savedData = JSON.parse(localStorage.getItem('snakeData')) || { highScore: 0, name: 'Player' };
+    document.getElementById('player-name').value = savedData.name;
+    document.getElementById('high-score-display').innerText = `High Score: ${savedData.highScore}`;
+    
+    const select = document.getElementById('color-select');
+    select.innerHTML = '';
+    COLORS.forEach(c => {
+        let opt = document.createElement('option');
+        opt.value = c.val;
+        opt.innerText = c.name;
+        if (savedData.highScore < c.score) {
+            opt.disabled = true;
+            opt.innerText += ` (Unlock: ${c.score})`;
+        }
+        // වර්තමාන වර්ණය තෝරා ගන්න
+        if (c.val === savedData.color) {
+             opt.selected = true;
+        }
+        select.appendChild(opt);
+    });
+
+    document.getElementById('btn-reset').onclick = () => {
+        if(confirm("Clear data?")) { localStorage.removeItem('snakeData'); location.reload(); }
+    };
+    
+    document.getElementById('btn-play').onclick = () => {
+        savedData.name = document.getElementById('player-name').value;
+        savedData.color = document.getElementById('color-select').value;
+        localStorage.setItem('snakeData', JSON.stringify(savedData));
+        startGame();
+    };
+}
+
+function updateLeaderboard() {
+    let sorted = [...snakes].sort((a,b) => b.score - a.score).slice(0, 3);
+    let html = sorted.map((s, i) => `<div>${i+1}. ${s.name} - ${s.score}</div>`).join('');
+    // ක්‍රීඩකයා ලැයිස්තුවේ නොමැති නම්, ඔවුන්ගේ ලකුණු එකතු කරන්න
+    if (!sorted.some(s => s === player)) {
+        html += `<div style="border-top:1px solid #aaa; margin-top:3px; padding-top:3px;">You: ${player.score}</div>`;
+    }
+    document.getElementById('lb-content').innerHTML = html;
+}
+
+function setupControls() {
+    window.addEventListener('keydown', e => {
+        if(e.key === 'ArrowLeft') keys.left = true;
+        if(e.key === 'ArrowRight') keys.right = true;
+        if(e.key === ' ' || e.key === 'ArrowUp') keys.boost = true;
+    });
+    window.addEventListener('keyup', e => {
+        if(e.key === 'ArrowLeft') keys.left = false;
+        if(e.key === 'ArrowRight') keys.right = false;
+        if(e.key === ' ' || e.key === 'ArrowUp') keys.boost = false;
+    });
+
+    const bindT = (id, k) => {
+        const el = document.getElementById(id);
+        el.onmousedown = () => keys[k] = true;
+        el.onmouseup = () => keys[k] = false;
+        el.ontouchstart = (e) => { e.preventDefault(); keys[k] = true; };
+        el.ontouchend = (e) => { e.preventDefault(); keys[k] = false; };
+    };
+    bindT('btn-left', 'left');
+    bindT('btn-right', 'right');
+    bindT('btn-boost', 'boost');
+}
+
+init();
+</script>
+</body>
+</html>
